@@ -35,16 +35,26 @@ export default function Home() {
           const web3Provider = new BrowserProvider((window as any).ethereum);
           const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
           
+          console.log('Auto-connect: accounts =', accounts);
+          
           if (accounts.length > 0) {
             const web3Signer = await web3Provider.getSigner();
             const addr = await web3Signer.getAddress();
+            console.log('Auto-connect: address =', addr);
+            
             const network = await web3Provider.getNetwork();
+            console.log('Auto-connect: network =', network);
+            console.log('Auto-connect: chainId =', network.chainId, 'type:', typeof network.chainId);
+            console.log('Auto-connect: chainId as Number =', Number(network.chainId));
+            console.log('Auto-connect: expected chainId =', TEMPO_CHAIN.chainId);
+            console.log('Auto-connect: match =', Number(network.chainId) === TEMPO_CHAIN.chainId);
             
             setProvider(web3Provider);
             setSigner(web3Signer);
             setAddress(addr);
             setChainId(Number(network.chainId));
           } else {
+            console.log('Auto-connect: no accounts, prompting connection');
             // Prompt connection
             connectWallet();
           }
