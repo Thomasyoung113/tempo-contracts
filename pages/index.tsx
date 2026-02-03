@@ -162,8 +162,23 @@ export default function Home() {
   };
 
   const deployContracts = async () => {
-    if (!signer || !isCorrectChain) {
-      setError('Please connect wallet and switch to Tempo network');
+    console.log('Deploy clicked. Signer:', signer, 'Provider:', provider, 'Chain:', chainId);
+    
+    if (!signer) {
+      setError('Wallet not connected. Please connect your wallet first.');
+      console.error('No signer available');
+      return;
+    }
+    
+    if (!provider) {
+      setError('Provider not initialized. Please refresh and reconnect wallet.');
+      console.error('No provider available');
+      return;
+    }
+    
+    if (!isCorrectChain) {
+      setError('Wrong network. Please switch to Tempo Moderato network.');
+      console.error('Wrong chain:', chainId, 'Expected:', TEMPO_CHAIN.chainId);
       return;
     }
     
@@ -172,6 +187,7 @@ export default function Home() {
     setCurrentDeploy(0);
     
     const bytecode = activeTab === 'nft' ? NFT_BYTECODE : TOKEN_BYTECODE;
+    console.log('Using bytecode:', bytecode.substring(0, 50) + '...');
     
     for (let i = 0; i < contractCount; i++) {
       setCurrentDeploy(i + 1);
@@ -192,9 +208,14 @@ export default function Home() {
       setTransactions(prev => [pendingTx, ...prev]);
       
       try {
+        console.log('Getting nonce and fee data...');
+        
         // Get current nonce and gas price
         const nonce = await signer.getNonce();
-        const feeData = await provider!.getFeeData();
+        console.log('Nonce:', nonce);
+        
+        const feeData = await provider.getFeeData();
+        console.log('Fee data:', feeData);
         
         // Create transaction object
         const tx = {
@@ -206,11 +227,14 @@ export default function Home() {
         };
         
         console.log(`Deploying contract ${i + 1}/${contractCount}: ${contractLabel}`);
-        console.log('Transaction:', tx);
+        console.log('Transaction object:', JSON.stringify(tx, (key, value) => 
+          typeof value === 'bigint' ? value.toString() : value
+        ));
         
         // Send transaction - THIS WILL PROMPT WALLET APPROVAL
+        console.log('Calling signer.sendTransaction - wallet popup should appear now...');
         const txResponse = await signer.sendTransaction(tx);
-        console.log('Transaction sent:', txResponse.hash);
+        console.log('Transaction sent successfully! Hash:', txResponse.hash);
         
         // Update with hash
         setTransactions(prev => prev.map((t, idx) => 
