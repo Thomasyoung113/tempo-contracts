@@ -1,7 +1,7 @@
 // Tempo Moderato Testnet Configuration
 export const TEMPO_CHAIN = {
   chainId: 42431,
-  chainIdHex: '0xa5cf',
+  chainIdHex: '0xa5bf',
   name: 'Tempo Testnet (Moderato)',
   currency: {
     name: 'USD',
