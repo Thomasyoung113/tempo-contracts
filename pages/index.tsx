@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ethers, ContractFactory, BrowserProvider, JsonRpcSigner } from 'ethers';
-import { TEMPO_CHAIN, generateUniqueName, generateUniqueSymbol, SIMPLE_NFT_BYTECODE, SIMPLE_TOKEN_BYTECODE } from '@/lib/contracts';
+import { useState, useEffect } from 'react';
+import { ethers, BrowserProvider, JsonRpcSigner } from 'ethers';
+import { TEMPO_CHAIN, generateUniqueName, generateUniqueSymbol, NFT_BYTECODE, TOKEN_BYTECODE } from '@/lib/contracts';
 
 type ContractType = 'nft' | 'token';
 
@@ -11,9 +11,6 @@ interface Transaction {
   type: ContractType;
   status: 'pending' | 'confirmed' | 'failed';
 }
-
-// Simple contract ABIs for deployment
-const SIMPLE_ABI = ['constructor(string name, string symbol)'];
 
 export default function Home() {
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
@@ -69,6 +66,15 @@ export default function Home() {
       const handleAccountsChanged = async (accounts: string[]) => {
         if (accounts.length > 0) {
           setAddress(accounts[0]);
+          // Re-get signer when account changes
+          if (provider) {
+            try {
+              const newSigner = await provider.getSigner();
+              setSigner(newSigner);
+            } catch (e) {
+              console.error('Failed to get signer:', e);
+            }
+          }
         } else {
           setAddress('');
           setSigner(null);
@@ -87,7 +93,7 @@ export default function Home() {
         ethereum.removeListener('chainChanged', handleChainChanged);
       };
     }
-  }, []);
+  }, [provider]);
 
   const connectWallet = async () => {
     if (typeof window === 'undefined' || !(window as any).ethereum) {
@@ -165,39 +171,62 @@ export default function Home() {
     setError('');
     setCurrentDeploy(0);
     
-    const bytecode = activeTab === 'nft' ? SIMPLE_NFT_BYTECODE : SIMPLE_TOKEN_BYTECODE;
+    const bytecode = activeTab === 'nft' ? NFT_BYTECODE : TOKEN_BYTECODE;
     
     for (let i = 0; i < contractCount; i++) {
       setCurrentDeploy(i + 1);
       
       const name = generateUniqueName(i + 1);
       const symbol = generateUniqueSymbol(i + 1);
+      const contractLabel = `${name} (${symbol})`;
+      
+      // Add pending transaction immediately
+      const pendingTx: Transaction = {
+        hash: '',
+        address: '',
+        name: contractLabel,
+        type: activeTab,
+        status: 'pending'
+      };
+      
+      setTransactions(prev => [pendingTx, ...prev]);
       
       try {
-        // Create contract factory
-        const factory = new ContractFactory(SIMPLE_ABI, bytecode, signer);
+        // Get current nonce and gas price
+        const nonce = await signer.getNonce();
+        const feeData = await provider!.getFeeData();
         
-        // Deploy - this will prompt Rabby for approval
-        const contract = await factory.deploy(name, symbol);
-        
-        const tx: Transaction = {
-          hash: contract.deploymentTransaction()?.hash || '',
-          address: '',
-          name: `${name} (${symbol})`,
-          type: activeTab,
-          status: 'pending'
+        // Create transaction object
+        const tx = {
+          nonce: nonce,
+          data: bytecode,
+          gasLimit: BigInt(500000),
+          gasPrice: feeData.gasPrice,
+          chainId: BigInt(TEMPO_CHAIN.chainId)
         };
         
-        setTransactions(prev => [tx, ...prev]);
+        console.log(`Deploying contract ${i + 1}/${contractCount}: ${contractLabel}`);
+        console.log('Transaction:', tx);
         
-        // Wait for deployment
-        await contract.waitForDeployment();
-        const deployedAddress = await contract.getAddress();
+        // Send transaction - THIS WILL PROMPT WALLET APPROVAL
+        const txResponse = await signer.sendTransaction(tx);
+        console.log('Transaction sent:', txResponse.hash);
         
-        // Update transaction with deployed address
+        // Update with hash
+        setTransactions(prev => prev.map((t, idx) => 
+          idx === 0 && t.name === contractLabel
+            ? { ...t, hash: txResponse.hash }
+            : t
+        ));
+        
+        // Wait for confirmation
+        const receipt = await txResponse.wait();
+        console.log('Transaction confirmed:', receipt);
+        
+        // Update with deployed address
         setTransactions(prev => prev.map(t => 
-          t.hash === tx.hash 
-            ? { ...t, address: deployedAddress, status: 'confirmed' as const }
+          t.hash === txResponse.hash 
+            ? { ...t, address: receipt?.contractAddress || '', status: 'confirmed' as const }
             : t
         ));
         
@@ -205,18 +234,25 @@ export default function Home() {
         console.error(`Deploy ${i + 1} failed:`, err);
         
         // Check if user rejected
-        if (err.code === 4001 || err.code === 'ACTION_REJECTED') {
+        if (err.code === 4001 || err.code === 'ACTION_REJECTED' || err.message?.includes('rejected')) {
           setError('User rejected transaction');
+          // Update status to failed
+          setTransactions(prev => prev.map((t, idx) => 
+            idx === 0 && t.status === 'pending'
+              ? { ...t, status: 'failed' as const }
+              : t
+          ));
           break;
         }
         
-        setTransactions(prev => [{
-          hash: '',
-          address: '',
-          name: `${name} (${symbol})`,
-          type: activeTab,
-          status: 'failed'
-        }, ...prev]);
+        // Update status to failed
+        setTransactions(prev => prev.map((t, idx) => 
+          idx === 0 && t.name === contractLabel
+            ? { ...t, status: 'failed' as const }
+            : t
+        ));
+        
+        setError(`Deploy failed: ${err.message}`);
       }
     }
     
