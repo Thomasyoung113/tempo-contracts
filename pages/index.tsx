@@ -3,6 +3,7 @@ import { ethers, BrowserProvider, JsonRpcSigner } from 'ethers';
 import { TEMPO_CHAIN, generateUniqueName, generateUniqueSymbol, NFT_BYTECODE, TOKEN_BYTECODE } from '@/lib/contracts';
 
 type ContractType = 'nft' | 'token';
+type TabType = 'nft' | 'token' | 'balance';
 
 interface Transaction {
   hash: string;
@@ -18,7 +19,7 @@ export default function Home() {
   const [address, setAddress] = useState<string>('');
   const [chainId, setChainId] = useState<number>(0);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [activeTab, setActiveTab] = useState<ContractType>('nft');
+  const [activeTab, setActiveTab] = useState<TabType>('nft');
   const [contractCount, setContractCount] = useState<number>(1);
   const [isDeploying, setIsDeploying] = useState(false);
   const [currentDeploy, setCurrentDeploy] = useState(0);
@@ -192,11 +193,17 @@ export default function Home() {
       return;
     }
     
+    if (activeTab === 'balance') {
+      setError('Please switch to NFT or Token section to deploy contracts.');
+      return;
+    }
+    
     setIsDeploying(true);
     setError('');
     setCurrentDeploy(0);
     
-    const bytecode = activeTab === 'nft' ? NFT_BYTECODE : TOKEN_BYTECODE;
+    const contractType: ContractType = activeTab as ContractType;
+    const bytecode = contractType === 'nft' ? NFT_BYTECODE : TOKEN_BYTECODE;
     console.log('Using bytecode:', bytecode.substring(0, 50) + '...');
     
     for (let i = 0; i < contractCount; i++) {
@@ -211,7 +218,7 @@ export default function Home() {
         hash: '',
         address: '',
         name: contractLabel,
-        type: activeTab,
+        type: contractType,
         status: 'pending'
       };
       
@@ -306,6 +313,44 @@ export default function Home() {
     }
   };
 
+  const [balance, setBalance] = useState<string>('0');
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+
+  // Fetch balance when address or chain changes
+  useEffect(() => {
+    const fetchBalance = async () => {
+      if (provider && address && isCorrectChain) {
+        setIsLoadingBalance(true);
+        try {
+          const bal = await provider.getBalance(address);
+          setBalance(ethers.formatEther(bal));
+        } catch (err) {
+          console.error('Failed to fetch balance:', err);
+          setBalance('0');
+        }
+        setIsLoadingBalance(false);
+      } else {
+        setBalance('0');
+      }
+    };
+    
+    fetchBalance();
+    
+    // Refresh balance every 15 seconds
+    const interval = setInterval(fetchBalance, 15000);
+    return () => clearInterval(interval);
+  }, [provider, address, isCorrectChain]);
+
+  const disconnectWallet = () => {
+    setProvider(null);
+    setSigner(null);
+    setAddress('');
+    setChainId(0);
+    setBalance('0');
+    setTransactions([]);
+    setError('');
+  };
+
   const shortAddress = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
 
   return (
@@ -349,6 +394,15 @@ export default function Home() {
                   <div className={`w-2 h-2 rounded-full ${isCorrectChain ? 'bg-green-400' : 'bg-yellow-400'}`} />
                   <span className="font-mono text-sm">{shortAddress}</span>
                 </div>
+                <button
+                  onClick={disconnectWallet}
+                  className="px-3 py-2 rounded-lg bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500/30 transition-all"
+                  title="Disconnect Wallet"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                </button>
               </div>
             ) : (
               <button
@@ -404,82 +458,162 @@ export default function Home() {
             >
               <span className="mr-2">🪙</span> Token Section
             </button>
+            <button
+              onClick={() => setActiveTab('balance')}
+              className={`flex-1 px-6 py-4 font-semibold transition-all ${
+                activeTab === 'balance' ? 'tab-active text-tempo-primary' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <span className="mr-2">💰</span> Balance
+            </button>
           </div>
           
           {/* Content */}
           <div className="p-6 md:p-8">
-            {/* Contract Count Input */}
-            <div className="mb-6">
-              <label className="block text-sm text-gray-400 mb-2">
-                Number of {activeTab === 'nft' ? 'NFT' : 'Token'} contracts to deploy (1-100)
-              </label>
-              <div className="flex items-center gap-4">
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={contractCount}
-                  onChange={(e) => setContractCount(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
-                  className="input-field w-32 px-4 py-3 rounded-lg text-center text-xl font-mono"
-                />
-                <input
-                  type="range"
-                  min="1"
-                  max="100"
-                  value={contractCount}
-                  onChange={(e) => setContractCount(parseInt(e.target.value))}
-                  className="flex-1 h-2 bg-tempo-card rounded-lg appearance-none cursor-pointer accent-tempo-primary"
-                />
+            {/* Balance Tab Content */}
+            {activeTab === 'balance' ? (
+              <div className="text-center py-8">
+                <div className="mb-6">
+                  <p className="text-gray-400 text-sm mb-2">Your Balance on Tempo Moderato</p>
+                  <div className="flex items-center justify-center gap-3">
+                    {isLoadingBalance ? (
+                      <div className="spinner" />
+                    ) : (
+                      <span className="text-5xl md:text-6xl font-bold gradient-text">
+                        {parseFloat(balance).toFixed(4)}
+                      </span>
+                    )}
+                    <span className="text-2xl text-gray-400">USD</span>
+                  </div>
+                </div>
+                
+                <div className="p-4 rounded-lg bg-tempo-darker border border-tempo-border inline-block">
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="text-gray-400">Wallet:</span>
+                    <span className="font-mono text-white">{address || 'Not connected'}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm mt-2">
+                    <span className="text-gray-400">Network:</span>
+                    <span className={`font-semibold ${isCorrectChain ? 'text-green-400' : 'text-yellow-400'}`}>
+                      {isCorrectChain ? 'Tempo Moderato ✓' : 'Wrong Network'}
+                    </span>
+                  </div>
+                </div>
+                
+                {!address && (
+                  <div className="mt-6">
+                    <button
+                      onClick={connectWallet}
+                      disabled={isConnecting}
+                      className="btn-primary px-8 py-3 rounded-lg font-semibold"
+                    >
+                      {isConnecting ? 'Connecting...' : 'Connect Wallet to View Balance'}
+                    </button>
+                  </div>
+                )}
+                
+                {address && !isCorrectChain && (
+                  <div className="mt-6">
+                    <button
+                      onClick={switchToTempo}
+                      className="px-8 py-3 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/50 hover:bg-yellow-500/30 transition-all font-semibold"
+                    >
+                      Switch to Tempo Network
+                    </button>
+                  </div>
+                )}
+                
+                <div className="mt-8">
+                  <a
+                    href="https://docs.tempo.xyz/quickstart/faucet"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-tempo-primary/20 text-tempo-primary border border-tempo-primary/50 hover:bg-tempo-primary/30 transition-all"
+                  >
+                    <span>💧</span>
+                    Get Free USD from Faucet
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
               </div>
-            </div>
-            
-            {/* Deploy Info */}
-            <div className="mb-6 p-4 rounded-lg bg-tempo-darker border border-tempo-border">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-400">Contract Type:</span>
-                <span className="text-white font-semibold">
-                  {activeTab === 'nft' ? 'ERC-721 NFT' : 'ERC-20 Token'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm mt-2">
-                <span className="text-gray-400">Contracts to Deploy:</span>
-                <span className="text-tempo-primary font-semibold">{contractCount}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm mt-2">
-                <span className="text-gray-400">Network:</span>
-                <span className="text-white font-semibold">Tempo Moderato (Chain ID: 42431)</span>
-              </div>
-            </div>
-            
-            {/* Error Display */}
-            {error && (
-              <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400">
-                {error}
-              </div>
+            ) : (
+              <>
+                {/* Contract Count Input */}
+                <div className="mb-6">
+                  <label className="block text-sm text-gray-400 mb-2">
+                    Number of {activeTab === 'nft' ? 'NFT' : 'Token'} contracts to deploy (1-100)
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={contractCount}
+                      onChange={(e) => setContractCount(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                      className="input-field w-32 px-4 py-3 rounded-lg text-center text-xl font-mono"
+                    />
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      value={contractCount}
+                      onChange={(e) => setContractCount(parseInt(e.target.value))}
+                      className="flex-1 h-2 bg-tempo-card rounded-lg appearance-none cursor-pointer accent-tempo-primary"
+                    />
+                  </div>
+                </div>
+                
+                {/* Deploy Info */}
+                <div className="mb-6 p-4 rounded-lg bg-tempo-darker border border-tempo-border">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400">Contract Type:</span>
+                    <span className="text-white font-semibold">
+                      {activeTab === 'nft' ? 'ERC-721 NFT' : 'ERC-20 Token'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm mt-2">
+                    <span className="text-gray-400">Contracts to Deploy:</span>
+                    <span className="text-tempo-primary font-semibold">{contractCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm mt-2">
+                    <span className="text-gray-400">Network:</span>
+                    <span className="text-white font-semibold">Tempo Moderato (Chain ID: 42431)</span>
+                  </div>
+                </div>
+                
+                {/* Error Display */}
+                {error && (
+                  <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400">
+                    {error}
+                  </div>
+                )}
+                
+                {/* Deploy Button */}
+                <button
+                  onClick={deployContracts}
+                  disabled={!address || !isCorrectChain || isDeploying}
+                  className="btn-primary w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3"
+                >
+                  {isDeploying ? (
+                    <>
+                      <div className="spinner" />
+                      Deploying {currentDeploy} of {contractCount}...
+                    </>
+                  ) : (
+                    <>
+                      <span>🚀</span>
+                      Deploy {contractCount} {activeTab === 'nft' ? 'NFT' : 'Token'} Contract{contractCount > 1 ? 's' : ''}
+                    </>
+                  )}
+                </button>
+                
+                <p className="text-center text-gray-500 text-sm mt-3">
+                  Each contract requires manual approval in your wallet
+                </p>
+              </>
             )}
-            
-            {/* Deploy Button */}
-            <button
-              onClick={deployContracts}
-              disabled={!address || !isCorrectChain || isDeploying}
-              className="btn-primary w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3"
-            >
-              {isDeploying ? (
-                <>
-                  <div className="spinner" />
-                  Deploying {currentDeploy} of {contractCount}...
-                </>
-              ) : (
-                <>
-                  <span>🚀</span>
-                  Deploy {contractCount} {activeTab === 'nft' ? 'NFT' : 'Token'} Contract{contractCount > 1 ? 's' : ''}
-                </>
-              )}
-            </button>
-            
-            <p className="text-center text-gray-500 text-sm mt-3">
-              Each contract requires manual approval in your wallet
-            </p>
           </div>
         </div>
         
