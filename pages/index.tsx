@@ -263,23 +263,43 @@ export default function Home() {
         const txResponse = await signer.sendTransaction(tx);
         console.log('Transaction sent successfully! Hash:', txResponse.hash);
         
-        // Update with hash
+        // Update with hash immediately
         setTransactions(prev => prev.map((t, idx) => 
           idx === 0 && t.name === contractLabel
             ? { ...t, hash: txResponse.hash }
             : t
         ));
         
-        // Wait for confirmation
-        const receipt = await txResponse.wait();
-        console.log('Transaction confirmed:', receipt);
+        // Wait for confirmation - wrap in separate try-catch for Tempo RPC quirks
+        let contractAddress = '';
+        try {
+          const receipt = await txResponse.wait();
+          console.log('Transaction confirmed:', receipt);
+          contractAddress = receipt?.contractAddress || '';
+        } catch (receiptErr: any) {
+          console.warn('Receipt parsing issue (tx may still be confirmed):', receiptErr);
+          // Try alternative method - fetch receipt directly
+          try {
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3s
+            const manualReceipt = await provider.getTransactionReceipt(txResponse.hash);
+            if (manualReceipt) {
+              contractAddress = manualReceipt.contractAddress || '';
+              console.log('Got receipt via fallback:', manualReceipt);
+            }
+          } catch (fallbackErr) {
+            console.warn('Fallback receipt fetch also failed:', fallbackErr);
+          }
+        }
         
-        // Update with deployed address
+        // Update with deployed address - mark as confirmed if we have a hash
         setTransactions(prev => prev.map(t => 
           t.hash === txResponse.hash 
-            ? { ...t, address: receipt?.contractAddress || '', status: 'confirmed' as const }
+            ? { ...t, address: contractAddress, status: 'confirmed' as const }
             : t
         ));
+        
+        // Clear any previous error on success
+        setError('');
         
       } catch (err: any) {
         console.error(`Deploy ${i + 1} failed:`, err);
@@ -287,7 +307,6 @@ export default function Home() {
         // Check if user rejected
         if (err.code === 4001 || err.code === 'ACTION_REJECTED' || err.message?.includes('rejected')) {
           setError('User rejected transaction');
-          // Update status to failed
           setTransactions(prev => prev.map((t, idx) => 
             idx === 0 && t.status === 'pending'
               ? { ...t, status: 'failed' as const }
@@ -303,7 +322,16 @@ export default function Home() {
             : t
         ));
         
-        setError(`Deploy failed: ${err.message}`);
+        // Clean error message - don't show raw JSON
+        let cleanError = 'Transaction failed';
+        if (err.message?.includes('insufficient funds')) {
+          cleanError = 'Insufficient funds for gas';
+        } else if (err.message?.includes('nonce')) {
+          cleanError = 'Nonce error - please refresh and try again';
+        } else if (err.shortMessage) {
+          cleanError = err.shortMessage;
+        }
+        setError(cleanError);
       }
     }
     
