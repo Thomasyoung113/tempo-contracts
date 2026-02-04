@@ -234,14 +234,24 @@ export default function Home() {
         const feeData = await provider.getFeeData();
         console.log('Fee data:', feeData);
         
-        // Create transaction object
-        const tx = {
+        // Create transaction object with fallback for gas values
+        const gasPrice = feeData.gasPrice || feeData.maxFeePerGas || ethers.parseUnits('1', 'gwei');
+        
+        const tx: any = {
           nonce: nonce,
           data: bytecode,
           gasLimit: BigInt(500000),
-          gasPrice: feeData.gasPrice,
-          chainId: BigInt(TEMPO_CHAIN.chainId)
+          chainId: BigInt(TEMPO_CHAIN.chainId),
+          value: BigInt(0)
         };
+        
+        // Use EIP-1559 if available, otherwise legacy gasPrice
+        if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+          tx.maxFeePerGas = feeData.maxFeePerGas;
+          tx.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
+        } else {
+          tx.gasPrice = gasPrice;
+        }
         
         console.log(`Deploying contract ${i + 1}/${contractCount}: ${contractLabel}`);
         console.log('Transaction object:', JSON.stringify(tx, (key, value) => 
