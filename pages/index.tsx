@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ethers, BrowserProvider, JsonRpcSigner } from 'ethers';
 import { TEMPO_CHAIN, generateUniqueName, generateUniqueSymbol, NFT_BYTECODE, TOKEN_BYTECODE } from '@/lib/contracts';
+import Link from 'next/link';
 
 type ContractType = 'nft' | 'token';
 type TabType = 'nft' | 'token' | 'balance';
@@ -404,6 +405,15 @@ export default function Home() {
           </div>
           
           <div className="flex items-center gap-3">
+            {/* Guide Link */}
+            <Link
+              href="/guide"
+              className="px-4 py-2 rounded-lg bg-tempo-card border border-tempo-border hover:border-tempo-primary transition-all flex items-center gap-2"
+            >
+              <span>📖</span>
+              Guide
+            </Link>
+            
             {/* Explorer Tab */}
             {address && (
               <button
